@@ -1,0 +1,3 @@
+#!/bin/bash
+
+docker start app-postgres 2>/dev/null || docker run --name app-postgres -p 5432:5432 -e POSTGRES_PASSWORD=postgres -d postgres:12-alpine

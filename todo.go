@@ -2,14 +2,41 @@ package todo
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/pkg/errors"
-
-	"github.com/gofrs/uuid"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
+
+const defaultDBUrl = "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+
+type TodoItem struct {
+	gorm.Model
+	Value     string `gorm:"uniqueIndex"`
+	Completed bool
+}
+
+var db *gorm.DB
 
 func init() {
 	fmt.Println("starting todo package init")
+	dbURL := defaultDBUrl
+	if d := os.Getenv("DATABASE_URL"); d != "" {
+		dbURL = d
+	}
+
+	var err error
+	db, err = gorm.Open(postgres.Open(dbURL), &gorm.Config{})
+	if err != nil {
+		panic(err)
+	}
+
+	err = db.AutoMigrate(&TodoItem{})
+	if err != nil {
+		panic(err)
+	}
+
 }
 
 var (
@@ -17,49 +44,39 @@ var (
 	ErrExists   = errors.New("todo item already exists")
 )
 
-var todos = map[string]string{
-	"a": "Pickup dry cleaning",
-	"b": "Groceries",
-	"c": "Fight a bear",
-}
+func Get(id string) (*TodoItem, error) {
+	var i *TodoItem
+	db.First(&i, id)
 
-func Get(id string) (string, error) {
-	item, e := todos[id]
-	if !e {
-		return "", ErrNotFound
-	}
-
-	return item, nil
-}
-
-func Set(value string) (map[string]string, error) {
-	for _, v := range todos {
-		if v == value {
-			return nil, ErrExists
-		}
-	}
-
-	id, err := uuid.NewV4()
-	if err != nil {
-		return nil, errors.Wrap(err, "generating item uuid")
-	}
-
-	todos[id.String()] = value
-
-	return todos, nil
-}
-
-func List() map[string]string {
-	return todos
-}
-
-func Complete(id string) (map[string]string, error) {
-	_, e := todos[id]
-	if !e {
+	if i == nil {
 		return nil, ErrNotFound
 	}
 
-	delete(todos, id)
+	return i, nil
+}
 
-	return todos, nil
+func Set(value string) ([]TodoItem, error) {
+	db.Create(&TodoItem{
+		Value: value,
+	})
+
+	return List(false), nil
+}
+
+func List(includeCompleted bool) []TodoItem {
+	var items []TodoItem
+
+	if includeCompleted {
+		db.Find(&items)
+	} else {
+		db.Where("completed = ?", false).Find(&items)
+	}
+
+	return items
+}
+
+func Complete(id string) ([]TodoItem, error) {
+	db.Model(&TodoItem{}).Where("id = ?", id).Update("completed", true)
+
+	return List(false), nil
 }
